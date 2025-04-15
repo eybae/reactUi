@@ -1,3 +1,6 @@
+import sys
+sys.path.insert(0, "/usr/lib/python3/dist-packages/") 
+
 from flask import Flask, request, Response
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
@@ -9,6 +12,8 @@ from datetime import datetime
 import json
 import threading
 from flask import jsonify
+
+
 
 app = Flask(__name__)
 CORS(app)
@@ -112,19 +117,30 @@ def stream_camera():
 
 @app.route("/ptz/control", methods=["POST"])
 def ptz_control():
-    try:
-        data = request.json
-        action = data.get("action")
-        speed = data.get("speed", 3)  # 기본 속도는 3
-        ptz.control_camera(action, speed)
-        return jsonify({"success": True, "message": f"{action}({speed}) 명령 전송됨"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    data = request.json
+    action = data.get("action", "stop")
+    speed = data.get("speed", 63)
+    ptz.control_camera(action, speed)
+    return jsonify({"success": True, "action": action})
 
+@app.route("/ptz/preset/store", methods=["POST"])
+def ptz_store_preset():
+    data = request.json
+    preset_id = int(data.get("preset_id", 1))
+    ptz.send_preset_store(preset_id)
+    return jsonify({"success": True, "preset_id": preset_id})
+
+@app.route("/ptz/preset/recall", methods=["POST"])
+def ptz_recall_preset():
+    data = request.json
+    preset_id = int(data.get("preset_id", 1))
+    ptz.send_preset_recall(preset_id)
+    return jsonify({"success": True, "preset_id": preset_id})
 
 @socketio.on('disconnect')
 def handle_disconnect():
     print(f"❌ WebSocket 연결 종료됨: {request.sid}")
 
 if __name__ == '__main__':
+    ptz.init_serial()
     socketio.run(app, host='0.0.0.0', port=5050)
