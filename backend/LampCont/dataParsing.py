@@ -69,6 +69,27 @@ def deviceDataParsing(json_payload):
         print(f"⚠️ 로그 저장 오류: {e}")
 
     return dev_data
+
+def encode_group_payload(mode, cmd, state, dem, on_time, off_time):
+    mode_byte = int(mode) & 0xFF
+    cmd_byte = int(cmd) & 0xFF
+    state_byte = 0x01 if state == "on" else 0x00
+    dem_byte = max(1, min(int(dem), 5))
+
+    def time_to_bytes(t):
+        try:
+            h, m = map(int, t.split(":"))
+            return h & 0xFF, m & 0xFF
+        except:
+            return 0x00, 0x00
+
+    on_h, on_m = map(int, on_time.split(":"))
+    off_h, off_m = map(int, off_time.split(":"))
+    
+    #state_val = 1 if state == 'on' else 0
+
+    return bytes([mode_byte, cmd_byte, state_byte, dem_byte, on_h, on_m, off_h, off_m])
+
     
 
 

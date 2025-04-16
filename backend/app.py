@@ -12,8 +12,8 @@ from datetime import datetime
 import json
 import threading
 from flask import jsonify
-
-
+import base64
+import traceback
 
 app = Flask(__name__)
 CORS(app)
@@ -140,7 +140,33 @@ def ptz_recall_preset():
 @socketio.on('disconnect')
 def handle_disconnect():
     print(f"❌ WebSocket 연결 종료됨: {request.sid}")
+    
+@app.route('/group/control', methods=['POST'])
+def group_control():
+    data = request.json
+    mode = 0
+    cmd = data.get('cmd', 1)
+    state = data.get('state', 'off')
+    brightness = data.get('brightness', 1)
+    on_time = data.get('onTime', '00:00')
+    off_time = data.get('offTime', '00:00')
 
+    print(f"💡 [GroupControl] mode:{mode}, cmd:{cmd}, state:{state}, 밝기:{brightness}, ON:{on_time}, OFF:{off_time}")
+
+    try:
+        payload_bytes = dataParsing.encode_group_payload(mode, cmd, state, brightness, on_time, off_time)
+        payload_base64 = base64.b64encode(payload_bytes).decode('utf-8')
+        mqtt.publish("application/1/devices/0080e1150000be14/command/down", json.dumps({
+            "confirmed": False,
+            "fPort": 10,
+            "data": payload_base64
+        }))
+        print(f"📤 전송 바이트: {[hex(b) for b in payload_bytes]}")
+        return jsonify({"status": "success", "payload": list(payload_bytes)})
+    except Exception as e:
+        traceback.print_exc()  # 자세한 에러 로그 콘솔에 출력
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
 if __name__ == '__main__':
     ptz.init_serial()
     socketio.run(app, host='0.0.0.0', port=5050)
