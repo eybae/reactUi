@@ -1,26 +1,38 @@
-// src/App.jsx
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Dashboard from './pages/Dashboard';
-import Sidebar from './components/Sidebar';
-import WebSocketProvider from './contexts/WebSocketContext';
-import ModeSelector from "./components/ModeSelector";
+import { Outlet, Link, useLocation } from "react-router-dom";
 
 export default function App() {
+  const location = useLocation();
+
+  const navStyle = {
+    background: "#333",
+    padding: "1rem",
+    color: "white",
+    display: "flex",
+    gap: "1rem",
+  };
+
+  const linkStyle = (path) => ({
+    color: location.pathname === path ? "#FFD700" : "white", // 현재 페이지 강조 (노랑)
+    textDecoration: "none",
+    fontWeight: "bold",
+  });
+
   return (
-    <div className="p-4">
-      <ModeSelector />
-        <WebSocketProvider>
-          <Router>
-            <div className="flex h-screen">
-              <Sidebar />
-              <div className="flex-1 overflow-auto p-4">
-                <Routes>
-                  <Route path="/" element={<Dashboard />} />
-                </Routes>
-              </div>
-            </div>
-          </Router>
-        </WebSocketProvider>
-      </div>
+    <div>
+      <header style={{ background: "#222", color: "white", padding: "1rem" }}>
+        <h1>ESLS Dashboard</h1>
+        <nav style={navStyle}>
+          <Link to="/" style={linkStyle("/")}>대시보드</Link>
+          <Link to="/group-control" style={linkStyle("/group-control")}>일괄제어</Link>
+          <Link to="/auto-control" style={linkStyle("/auto-control")}>자동제어</Link>
+          <Link to="/single-control" style={linkStyle("/single-control")}>개별제어</Link>
+          <Link to="/camera" style={linkStyle("/camera")}>카메라 제어</Link>
+          <Link to="/logs" style={linkStyle("/logs")}>로그 데이터</Link>
+        </nav>
+      </header>
+      <main style={{ padding: "1rem" }}>
+        <Outlet />
+      </main>
+    </div>
   );
 }

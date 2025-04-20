@@ -1,96 +1,172 @@
 import sys
 sys.path.insert(0, "/usr/lib/python3/dist-packages/") 
 
-from flask import Flask, request, Response
-from flask_socketio import SocketIO, emit
-from flask_cors import CORS
-from paho.mqtt.client import Client as MQTTClient
-from LampCont import dataParsing
-from camera import ptz
-import os
-from datetime import datetime
+import time
 import json
-import threading
-from flask import jsonify
 import base64
 import traceback
+import threading
+import re
+
+from flask import Flask, request, jsonify, Response
+from flask_socketio import SocketIO
+from flask_cors import CORS
+from paho.mqtt.client import Client as MQTTClient
+
+from LampCont import dataParsing
+from camera import ptz
 
 app = Flask(__name__)
 CORS(app)
-#socketio = SocketIO(app, cors_allowed_origins="*")
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-# MQTT 클라이언트
+# MQTT 설정
 mqtt = MQTTClient()
-
-APPID = "1"
-TOPIC = 'application/1/#'
-DEV01 = "dev01"
 BROKER = "192.168.10.10"
+TOPIC = 'application/1/#'
 
+# 디바이스 정보
+DEV_MAP = {
+    "dev1": "0080e1150000be14",
+    #"dev2": "0080e1150000cda3",
+    #"dev3": "0080e1150000c318",
+    #"dev4": "0080e1150000ce98",
+    #"dev5": "0080e1150000cf78",
+}
+
+# 상태 저장
 led_states = {}
-devEUI = ""
+expected_states = {}
+retry_counts = {}
+last_sent_time = {}
+RETRY_INTERVAL = 5
+MAX_RETRY = 3
+
+# 상태 모니터링 스레드
+
+def monitor_expected_states():
+    while True:
+        now = time.time()
+        for led_key, expected in list(expected_states.items()):
+            retry = retry_counts.get(led_key, 0)
+            last_sent = last_sent_time.get(led_key, 0)
+
+            if retry >= MAX_RETRY:
+                continue
+
+            if now - last_sent >= RETRY_INTERVAL:
+                print(f"🔁 주기적 재전송: {led_key} ({retry + 1}/{MAX_RETRY})")
+                payload_bytes = dataParsing.encode_group_payload(
+                    0, 1,
+                    expected["status"],
+                    expected["brightness"],
+                    "00:00", "00:00"
+                )
+                payload_base64 = base64.b64encode(payload_bytes).decode("utf-8")
+                dev_index = led_key.split(" ")[1]
+                dev_key = f"dev{dev_index}"
+                dev_id = DEV_MAP.get(dev_key)
+                if dev_id:
+                    sendData(dev_id, payload_base64)
+                    last_sent_time[led_key] = now
+                    retry_counts[led_key] = retry + 1
+        time.sleep(1)
 
 # MQTT 콜백
+
 def on_connect(client, userdata, flags, rc):
-    print("📡 MQTT 브로커 연결됨")
-    client.subscribe(TOPIC)  # 예: led/1/status
+    print("📡 MQTT 연결 완료")
+    client.subscribe(TOPIC)
+
 
 def on_message(client, userdata, msg):
     try:
-        topic = msg.topic
         payload_str = msg.payload.decode()
         payload_json = json.loads(payload_str)
 
         devEUI = payload_json.get("deviceName")
         if not devEUI:
-            print("⚠️ deviceName 없음")
             return
 
         dev_data = dataParsing.deviceDataParsing(payload_json)
-
-        # 상태 저장
-        led_states[devEUI] = {
+        actual_status = {
             "status": "on" if dev_data.get("state") == 1 else "off",
             "brightness": dev_data.get("dem", 0)
         }
 
-        print(f"💾 저장됨: {devEUI} -> 상태: {led_states[devEUI]}")
-
-        # 안전한 emit
-        import re
         led_id = re.findall(r'\d+', devEUI)
-        led_id = led_id[0] if led_id else "0"
-        
-        print(f"🚀 WebSocket emit → LED {led_id}")
+        led_key = f"LED {led_id[0]}" if led_id else devEUI
+
+        prev = led_states.get(led_key)
+        if prev == actual_status:
+            return
+
+        led_states[led_key] = actual_status
+        print(f"💾 저장됨: {led_key} -> 상태: {actual_status}")
+
+        expected = expected_states.get(led_key)
+        if expected and actual_status == expected:
+            print(f"✅ 기대 상태 반영됨: {led_key}")
+            expected_states.pop(led_key, None)
+            retry_counts.pop(led_key, None)
+            last_sent_time.pop(led_key, None)
 
         socketio.emit("device_status_update", {
-            "device": f"LED {led_id}",
-            "status": led_states[devEUI]["status"],
-            "brightness": led_states[devEUI]["brightness"]
+            "device": led_key,
+            "status": actual_status["status"],
+            "brightness": actual_status["brightness"]
         })
 
     except Exception as e:
-        print(f"⚠️ on_message 처리 중 오류: {e}")
-        
-def delayed_emit():
-    import time
-    time.sleep(2)
-    print("🚀 테스트 emit")
+        print(f"⚠️ on_message 처리 오류: {e}")
 
-    socketio.emit("device_status_update", {
-        "device": "LED 2",
-        "status": "on",
-        "brightness": 75
+# MQTT 전송
+
+def sendData(devId, data):
+    topic = f"application/1/device/{devId}/command/down"
+    payload = json.dumps({
+        "confirmed": False,
+        "fPort": 2,
+        "data": data
     })
+    print(f"📡 MQTT publish 요청 → {topic}")
+    result = mqtt.publish(topic, payload)
+    print("📨 publish result:", result.rc)
 
-threading.Thread(target=delayed_emit).start()
+# 제어 API
 
-# MQTT 초기화
-mqtt.on_connect = on_connect
-mqtt.on_message = on_message
-mqtt.connect(BROKER, 1883, 60)
-mqtt.loop_start()
+@app.route('/group/control', methods=['POST'])
+def group_control():
+    data = request.json
+    mode = data.get("mode", 0)
+    cmd = data.get('cmd', 1)
+    state = data.get('state', 'off')
+    brightness = data.get('brightness', 1)
+    on_time = data.get('onTime', '00:00')
+    off_time = data.get('offTime', '00:00')
+
+    try:
+        payload_bytes = dataParsing.encode_group_payload(mode, cmd, state, brightness, on_time, off_time)
+        payload_base64 = base64.b64encode(payload_bytes).decode('utf-8')
+
+        for devName, devId in DEV_MAP.items():
+            led_key = f"LED {devName[-1]}"
+            expected_states[led_key] = {
+                "status": state,
+                "brightness": brightness
+            }
+            retry_counts[led_key] = 0
+            last_sent_time[led_key] = time.time()
+            sendData(devId, payload_base64)
+            time.sleep(0.5)
+
+        print(f"📤 전송 바이트: {[hex(b) for b in payload_bytes]}")
+        return jsonify({"status": "success"})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+        
 
 @app.route('/')
 def index():
@@ -140,33 +216,15 @@ def ptz_recall_preset():
 @socketio.on('disconnect')
 def handle_disconnect():
     print(f"❌ WebSocket 연결 종료됨: {request.sid}")
-    
-@app.route('/group/control', methods=['POST'])
-def group_control():
-    data = request.json
-    mode = 0
-    cmd = data.get('cmd', 1)
-    state = data.get('state', 'off')
-    brightness = data.get('brightness', 1)
-    on_time = data.get('onTime', '00:00')
-    off_time = data.get('offTime', '00:00')
 
-    print(f"💡 [GroupControl] mode:{mode}, cmd:{cmd}, state:{state}, 밝기:{brightness}, ON:{on_time}, OFF:{off_time}")
-
-    try:
-        payload_bytes = dataParsing.encode_group_payload(mode, cmd, state, brightness, on_time, off_time)
-        payload_base64 = base64.b64encode(payload_bytes).decode('utf-8')
-        mqtt.publish("application/1/devices/0080e1150000be14/command/down", json.dumps({
-            "confirmed": False,
-            "fPort": 10,
-            "data": payload_base64
-        }))
-        print(f"📤 전송 바이트: {[hex(b) for b in payload_bytes]}")
-        return jsonify({"status": "success", "payload": list(payload_bytes)})
-    except Exception as e:
-        traceback.print_exc()  # 자세한 에러 로그 콘솔에 출력
-        return jsonify({"status": "error", "message": str(e)}), 500
-    
 if __name__ == '__main__':
     ptz.init_serial()
+    mqtt.on_connect = on_connect
+    mqtt.on_message = on_message
+    mqtt.connect(BROKER, 1883, 60)
+    mqtt.loop_start()
+
+    monitor_thread = threading.Thread(target=monitor_expected_states, daemon=True)
+    monitor_thread.start()
+
     socketio.run(app, host='0.0.0.0', port=5050)

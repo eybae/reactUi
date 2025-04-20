@@ -1,0 +1,28 @@
+# Deep Learning & Inference
+torch==2.5.0a0+872d972e41.nv24.8
+torchvision==0.20.0a0+afc54f7
+onnxruntime-gpu==1.20.0
+opencv-python==4.9.0.80
+ultralytics==8.3.109
+pandas  # <- 추가됨
+
+# PTZ Camera
+pyserial==3.5
+
+# Web
+Flask==2.3.3
+flask-socketio==5.3.6
+flask-cors==4.0.0
+eventlet==0.33.3
+
+# MQTT
+paho-mqtt==1.6.1
+
+# WebSocket
+python-socketio==5.5.2
+python-engineio==4.9.0
+
+# 기타
+dnspython==2.7.0
+greenlet==3.2.0
+requests

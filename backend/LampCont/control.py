@@ -42,8 +42,8 @@ def totalControl(request):
         if not errors:  
             aon1 = ontime.split(':')
             aoff1 = offtime.split(':')  
-            mode = 0                # 0: 자동 , 1: 일괄, 2:개별 
-            cmd = 1                 # 0: 상태 , 1: 명령        
+            mode = 0                # 0: 상태 , 1: 명령 
+            cmd = 1                 # 0: 자동 , 1: 일괄, 2:개별         
             
             dataArray = [int(mode), int(cmd), int(state), int(dem), int(aon1[0]), int(aon1[1]), int(aoff1[0]), int(aoff1[1])]     
             
@@ -158,8 +158,8 @@ def eachControl(request):
             off9 = bonTime9.split(':')
             on10 = bonTime10.split(':')
             off10 = bonTime10.split(':')
-            mode = 2       # 개별제어
-            cmd = 1
+            mode = 0       # 개별제어
+            cmd = 2
             
             data2temp = {'lamp1': [int(mode), int(cmd), int(bstate1), int(bdem1), int(on1[0]), int(on1[1]), int(off1[0]), int(off1[1])],
                         'lamp2': [int(mode), int(cmd), int(bstate2), int(bdem2), int(on2[0]), int(on2[1]), int(off2[0]), int(off2[1])],
