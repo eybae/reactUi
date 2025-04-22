@@ -6,6 +6,10 @@ __pycache__/
 *.log
 venv/
 .env
+*.csv
+*.mp4
+*.avi
+*.mkv
 
 # Node
 node_modules/

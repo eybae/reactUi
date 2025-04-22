@@ -3,7 +3,8 @@ import io from "socket.io-client";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-const socket = io("http://localhost:5050");
+// 접속 주소 기반으로 소켓 초기화
+const socket = io(window.location.origin.replace(/^http/, "ws"));
 
 export default function Dashboard() {
   const [devices, setDevices] = useState(
@@ -61,6 +62,9 @@ export default function Dashboard() {
     }
   }, [devices]);
 
+  // 현재 호스트 주소를 기반으로 스트리밍 주소 설정
+  const streamUrl = `${window.location.protocol}//${window.location.hostname}:5050/stream.mjpg`;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
       {/* 장비 상태 상단 */}
@@ -103,7 +107,7 @@ export default function Dashboard() {
             id="map"
             style={{
               width: "100%",
-              height: "480px",        // 카메라와 동일한 높이로 고정
+              height: "480px",
               borderRadius: "8px",
               border: "1px solid #ccc",
             }}
@@ -114,16 +118,16 @@ export default function Dashboard() {
         <div style={{ flex: 1 }}>
           <h3>카메라 스트리밍</h3>
           <img
-            src="http://localhost:5050/stream.mjpg"
+            src={streamUrl}
             alt="카메라 스트리밍"
             style={{
               width: "100%",
-              height: "480px",          // 지도와 동일
+              height: "480px",
               objectFit: "cover",
               border: "1px solid #ccc",
               borderRadius: "8px",
             }}
-          />        
+          />
         </div>
       </div>
     </div>

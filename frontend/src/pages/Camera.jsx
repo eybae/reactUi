@@ -16,9 +16,14 @@ const zoomControls = [
 export default function CameraControl() {
   const [presetId, setPresetId] = useState(1);
 
+  // 현재 접속된 주소에서 호스트(IP 또는 도메인)를 가져와 백엔드 주소 구성
+  const backendHost = window.location.hostname;
+  const backendPort = 5050;
+  const backendUrl = `http://${backendHost}:${backendPort}`;
+
   const handleControl = async (action) => {
     try {
-      await axios.post("http://localhost:5050/ptz/control", {
+      await axios.post(`${backendUrl}/ptz/control`, {
         action,
         speed: 3,
       });
@@ -32,12 +37,12 @@ export default function CameraControl() {
 
   const handleZoomClick = async (action) => {
     await handleControl(action);
-    setTimeout(() => handleControl("stop"), 300); // 짧게 동작 후 정지
+    setTimeout(() => handleControl("stop"), 300);
   };
 
   const handleStorePreset = async () => {
     try {
-      await axios.post("http://localhost:5050/ptz/preset/store", {
+      await axios.post(`${backendUrl}/ptz/preset/store`, {
         preset_id: presetId,
       });
       alert(`📌 위치 ${presetId} 저장됨`);
@@ -48,7 +53,7 @@ export default function CameraControl() {
 
   const handleRecallPreset = async () => {
     try {
-      await axios.post("http://localhost:5050/ptz/preset/recall", {
+      await axios.post(`${backendUrl}/ptz/preset/recall`, {
         preset_id: presetId,
       });
     } catch (err) {
@@ -134,7 +139,7 @@ export default function CameraControl() {
       {/* 카메라 스트리밍 */}
       <div style={{ border: "2px solid #ccc", padding: 10, maxWidth: 640 }}>
         <img
-          src="http://localhost:5050/stream.mjpg"
+          src={`${backendUrl}/stream.mjpg`}
           alt="카메라 스트리밍"
           style={{ width: "100%", borderRadius: 10 }}
         />

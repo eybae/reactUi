@@ -8,13 +8,15 @@ import traceback
 import threading
 import re
 
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, send_file,Response
 from flask_socketio import SocketIO
 from flask_cors import CORS
 from paho.mqtt.client import Client as MQTTClient
 
 from LampCont import dataParsing
 from camera import ptz
+
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -217,14 +219,85 @@ def ptz_recall_preset():
 def handle_disconnect():
     print(f"❌ WebSocket 연결 종료됨: {request.sid}")
 
+LOG_DIRS = {
+    "esls": "/home/stn/Dev/esls-testbed/log",
+    "ui": "/home/stn/Dev/uiTest/backend/logs"
+}
+
+# 재귀적으로 로그 파일 찾기
+def find_all_logs(base_path, rel_base=""):
+    log_files = []
+    for root, _, files in os.walk(base_path):
+        for f in files:
+            if f.endswith(".csv") or f.endswith(".log"):
+                full_path = os.path.join(root, f)
+                rel_path = os.path.relpath(full_path, base_path)
+                log_files.append({
+                    "name": f,
+                    "relative_path": os.path.join(rel_base, rel_path).replace("\\", "/")
+                })
+    return log_files
+
+# 모든 .csv 파일 리스트 API
+@app.route('/api/logs/list')
+def list_log_files():
+    all_files = []
+    for source, folder in LOG_DIRS.items():
+        try:
+            log_files = find_all_logs(folder, rel_base=source)
+            all_files.extend(log_files)
+        except Exception as e:
+            print(f"❌ Failed to read from {folder}: {e}")
+    return jsonify(all_files)
+
+# CSV 파일 내용 읽기 API
+@app.route('/api/logs/file')
+def get_log_file():
+    relative_path = request.args.get("path")
+    if not relative_path:
+        return "Missing path", 400
+
+    for source, folder in LOG_DIRS.items():
+        if relative_path.startswith(source + "/"):
+            rel_path = relative_path[len(source) + 1:]
+            full_path = os.path.join(folder, rel_path)
+            if not os.path.exists(full_path):
+                return "File not found", 404
+            with open(full_path, "r", encoding="utf-8") as f:
+                return f.read(), 200, {"Content-Type": "text/csv"}
+
+    return "Invalid source", 400
+    
+# 파일 다운로드 API
+@app.route('/api/logs/download')
+def download_log_file():
+    relative_path = request.args.get("path")
+    if not relative_path:
+        return "Missing path", 400
+
+    try:
+        source, filename = relative_path.split("/", 1)  # 여기만 바꿈
+        folder = LOG_DIRS.get(source)
+        if not folder:
+            return "Invalid source", 400
+
+        file_path = os.path.join(folder, filename)
+        if not os.path.exists(file_path):
+            return "File not found", 404
+
+        return send_file(file_path, as_attachment=True)
+    except Exception as e:
+        return f"Error: {e}", 500
+   
+
 if __name__ == '__main__':
     ptz.init_serial()
-    mqtt.on_connect = on_connect
-    mqtt.on_message = on_message
-    mqtt.connect(BROKER, 1883, 60)
-    mqtt.loop_start()
+    #mqtt.on_connect = on_connect
+    #mqtt.on_message = on_message
+    #mqtt.connect(BROKER, 1883, 60)
+    #mqtt.loop_start()
 
-    monitor_thread = threading.Thread(target=monitor_expected_states, daemon=True)
-    monitor_thread.start()
+    #monitor_thread = threading.Thread(target=monitor_expected_states, daemon=True)
+    #monitor_thread.start()
 
-    socketio.run(app, host='0.0.0.0', port=5050)
+    socketio.run(app, host='0.0.0.0', port=5050, allow_unsafe_werkzeug=True)
