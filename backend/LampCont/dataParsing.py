@@ -47,7 +47,8 @@ def log_device_data(device_name, dev_data):
 
 # 최종적으로 json_payload를 파싱해 DB저장용 딕셔너리 반환
 def deviceDataParsing(json_payload):
-    devName = json_payload.get('deviceName', 'unknown')
+    devInfo = json_payload.get('deviceInfo', {})
+    devName = devInfo.get("devEui", "unknown")
     dev_data = {}
 
     if 'data' in json_payload:
@@ -55,13 +56,18 @@ def deviceDataParsing(json_payload):
             dev_data = dataDecode(json_payload['data'])
         except Exception as e:
             print(f"⚠️ dataDecode 오류: {e}")
+            dev_data = {}
 
     try:
         log_device_data(devName, dev_data)
     except Exception as e:
         print(f"⚠️ 로그 저장 오류: {e}")
 
-    return dev_data
+    # 🔧 상태 및 밝기 필드 보정
+    return {
+        "status": "on" if dev_data.get("state") == 1 else "off",
+        "brightness": dev_data.get("dem", 0)
+    }
 
 # 그룹 제어용 payload 생성 (mode, cmd, on/off, 밝기, 시간 포함)
 def encode_group_payload(mode, cmd, state, dem, on_time, off_time):

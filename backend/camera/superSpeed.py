@@ -36,7 +36,7 @@ gst_output = (
     "appsrc ! videoconvert ! "
     "x264enc tune=zerolatency bitrate=2000 speed-preset=ultrafast ! "
     "rtph264pay config-interval=1 pt=96 ! "
-    "udpsink host=192.168.10.101 port=8554"
+    "udpsink host=localhost port=8554"
 )
 
 cap = cv2.VideoCapture(gst_input, cv2.CAP_GSTREAMER)

@@ -1,105 +1,77 @@
-import { useEffect, useState, useRef } from "react";
-import io from "socket.io-client";
+// 📁 src/pages/Dashboard.jsx
+import { useRef, useEffect } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { useLamp } from "../context/LampContext.jsx";
 
-// 접속 주소 기반으로 소켓 초기화
-const socket = io(window.location.origin.replace(/^http/, "ws"));
+const DEV_KEYS = [
+  "Lamp1", "Lamp2", "Lamp3", "Lamp4", "Lamp5",
+  "Lamp6", "Lamp7", "Lamp8", "Lamp9", "Lamp10",
+];
 
 export default function Dashboard() {
-  const [devices, setDevices] = useState(
-    Array.from({ length: 10 }, (_, i) => ({
-      id: i + 1,
-      status: "off",
-      brightness: 0,
-    }))
-  );
-
+  const { ledStates } = useLamp();
   const mapRef = useRef(null);
   const leafletMap = useRef(null);
+  const markerRef = useRef(null);
 
-  useEffect(() => {
-    socket.on("device_status_update", (data) => {
-      const id = parseInt(data.device.replace("LED ", ""));
-      setDevices((prev) =>
-        prev.map((dev) =>
-          dev.id === id
-            ? {
-                ...dev,
-                status: data.status,
-                brightness: data.brightness,
-              }
-            : dev
-        )
-      );
-    });
-
-    return () => {
-      socket.off("device_status_update");
-    };
-  }, []);
+  const anyLampOn = Object.values(ledStates).some((d) => d.status === "on");
 
   useEffect(() => {
     if (!leafletMap.current && mapRef.current) {
-      leafletMap.current = L.map(mapRef.current).setView(
-        [37.5665, 126.978],
-        13
-      );
-
+      leafletMap.current = L.map(mapRef.current).setView([37.5665, 126.978], 13);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap",
       }).addTo(leafletMap.current);
 
-      L.marker([37.5665, 126.978], {
+      markerRef.current = L.marker([37.5665, 126.978], {
         icon: L.icon({
-          iconUrl:
-            devices.some((d) => d.status === "on")
-              ? "https://maps.google.com/mapfiles/ms/icons/green-dot.png"
-              : "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
+          iconUrl: anyLampOn
+            ? "https://maps.google.com/mapfiles/ms/icons/green-dot.png"
+            : "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
           iconSize: [32, 32],
         }),
       }).addTo(leafletMap.current);
+    } else if (markerRef.current) {
+      const iconUrl = anyLampOn
+        ? "https://maps.google.com/mapfiles/ms/icons/green-dot.png"
+        : "https://maps.google.com/mapfiles/ms/icons/red-dot.png";
+      markerRef.current.setIcon(L.icon({ iconUrl, iconSize: [32, 32] }));
     }
-  }, [devices]);
+  }, [anyLampOn]);
 
-  // 현재 호스트 주소를 기반으로 스트리밍 주소 설정
   const streamUrl = `${window.location.protocol}//${window.location.hostname}:5050/stream.mjpg`;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
-      {/* 장비 상태 상단 */}
+      {/* 상태 카드 */}
       <div>
         <h2>Lamp 상태</h2>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
-          {devices.map((dev) => (
-            <div
-              key={dev.id}
-              style={{
-                border: "1px solid #ccc",
-                borderRadius: "8px",
-                padding: "1rem",
-                width: "100px",
-                backgroundColor: dev.status === "on" ? "#d1fae5" : "#f3f4f6",
-              }}
-            >
-              <strong>lamp {dev.id}</strong>
-              <p>전원: {dev.status}</p>
-              <p>밝기: {dev.brightness}</p>
-            </div>
-          ))}
+          {DEV_KEYS.map((key) => {
+            const dev = ledStates[key] || { status: "off", brightness: 0 };
+            return (
+              <div
+                key={key}
+                style={{
+                  border: "1px solid #ccc",
+                  borderRadius: "8px",
+                  padding: "1rem",
+                  width: "100px",
+                  backgroundColor: dev.status === "on" ? "#d1fae5" : "#f3f4f6",
+                }}
+              >
+                <strong>{key}</strong>
+                <p>전원: {dev.status}</p>
+                <p>밝기: {dev.brightness}</p>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* 지도 + 카메라 하단 */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: "1rem",
-          alignItems: "flex-start",
-        }}
-      >
-        {/* 지도 (왼쪽) */}
+      {/* 지도 & 카메라 */}
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem" }}>
         <div style={{ flex: 1 }}>
           <h3>디바이스 지도</h3>
           <div
@@ -114,7 +86,6 @@ export default function Dashboard() {
           ></div>
         </div>
 
-        {/* 카메라 (오른쪽) */}
         <div style={{ flex: 1 }}>
           <h3>카메라 스트리밍</h3>
           <img

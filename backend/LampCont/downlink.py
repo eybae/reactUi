@@ -7,13 +7,13 @@ from chirpstack_api import api
 # Configuration.
 
 # This must point to the API interface.
-server = "192.168.10.10:8080"
+server = "localhost:8080"
 
 # The DevEUI for which you want to enqueue the downlink.
 #dev_eui = "0101010101010101"
 
 # The API token (retrieved using the web-interface).
-api_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5X2lkIjoiY2ViYzAwMjMtYjIwMy00ZjA3LWIzOTQtYjZhMjc5MDJiNjg4IiwiYXVkIjoiYXMiLCJpc3MiOiJhcyIsIm5iZiI6MTYyOTI4Njc1OCwic3ViIjoiYXBpX2tleSJ9.-wmpBZRFZU9k1C0Lk18JLEQKNZoSvVveoP9BQqoZZWQ"
+api_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJjaGlycHN0YWNrIiwiaXNzIjoiY2hpcnBzdGFjayIsInN1YiI6IjZmZWFkYzhjLThjMDYtNDM2MS1iMWUzLWMwYWQ0ODY4ZGNiNyIsInR5cCI6ImtleSJ9.GkWEp3WiRCidd5TkJe5ocmeKdK6vy_4_si2hbitgZ9g"
 
 def sendData(devId, data):
   # Connect without using TLS.
@@ -28,11 +28,15 @@ def sendData(devId, data):
   # Construct request.
   req = api.EnqueueDeviceQueueItemRequest()
   req.queue_item.confirmed = False
-  req.queue_item.data = data           #bytes([0x01, 0x02, 0x03])
+  req.queue_item.data = data         #bytes([0x01, 0x02, 0x03])
   req.queue_item.dev_eui = devId
-  req.queue_item.f_port = 10
+  req.queue_item.f_port = 2
 
-  resp = client.Enqueue(req, metadata=auth_token)
+  try:
+      resp = client.Enqueue(req, metadata=auth_token)
+      print("✅ Enqueue 성공:", resp.id)
+  except grpc.RpcError as e:
+      print("❌ gRPC 오류:", e.code(), e.details())
 
   # Print the downlink id
   print(resp.id)

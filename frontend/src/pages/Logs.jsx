@@ -1,124 +1,74 @@
-import React, { useState, useEffect } from "react";
+// 📁 src/pages/Logs.jsx
+import { useEffect, useState } from "react";
+import axios from "axios";
 import Papa from "papaparse";
 
-const API_BASE = "http://223.171.34.182:5050"; // Jetson IP 주소로 설정
-
 export default function Logs() {
-  const [logFiles, setLogFiles] = useState([]);
-  const [selectedFile, setSelectedFile] = useState(null);
   const [csvData, setCsvData] = useState([]);
-  const [headers, setHeaders] = useState([]);
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const fetchLogs = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await axios.get("http://localhost:5050/logs");
+      const text = res.data;
+      const parsed = Papa.parse(text, { header: true });
+      setCsvData(parsed.data);
+    } catch (err) {
+      console.error("❌ 로그 불러오기 실패:", err);
+      setError("로그 불러오기 실패");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/logs/list`)
-      .then((res) => res.json())
-      .then((files) => setLogFiles(files))
-      .catch((err) => {
-        console.error("로그 파일 목록 불러오기 실패", err);
-        setError("🚫 로그 파일 목록을 가져오는 데 실패했습니다.");
-      });
+    fetchLogs();
   }, []);
 
-  const handleSelectFile = (e) => {
-    const relativePath = e.target.value;
-    setSelectedFile(relativePath);
-    loadCsvFile(relativePath);
-  };
-
-  const loadCsvFile = (relativePath) => {
-    setCsvData([]);
-    setHeaders([]);
-    setError("");
-
-    fetch(`${API_BASE}/api/logs/file?path=${encodeURIComponent(relativePath)}`)
-      .then((res) => res.text())
-      .then((text) => {
-        const result = Papa.parse(text, {
-          header: true,
-          skipEmptyLines: true,
-        });
-
-        if (result.errors.length > 0) {
-          console.error("CSV 파싱 오류:", result.errors);
-          setError("⚠️ CSV 파일을 읽는 중 오류가 발생했습니다.");
-          return;
-        }
-
-        if (result.data.length === 0) {
-          setError("📭 CSV 파일에 데이터가 없습니다.");
-        }
-
-        setCsvData(result.data);
-        setHeaders(Object.keys(result.data[0]));
-      })
-      .catch(() => {
-        setError("🚫 CSV 파일을 가져오는 데 실패했습니다.");
-      });
-  };
-
   return (
-    <div style={{ padding: 20 }}>
-      <h2>📊 로그 파일 보기</h2>
+    <div style={{ padding: "1rem" }}>
+      <h2>Jetson 로그 미리보기</h2>
+      <button
+        onClick={fetchLogs}
+        style={{ marginBottom: "1rem", padding: "0.5rem 1rem" }}
+      >
+        🔄 새로고침
+      </button>
 
-      {/* 로그 파일 선택 */}
-      <select onChange={handleSelectFile} defaultValue="">
-        <option value="" disabled>
-          🔽 로그 파일을 선택하세요
-        </option>
-        {logFiles.map((file, index) => (
-          <option key={index} value={file.relative_path}>
-            [{file.relative_path.split("/")[0]}] {file.name}
-          </option>
-        ))}
-      </select>
+      {loading && <p>⏳ 불러오는 중...</p>}
+      {error && <p style={{ color: "red" }}>{error}</p>}
 
-      {/* 다운로드 링크 */}
-      {selectedFile && (
-        <div style={{ marginTop: 10 }}>
-          <a
-            href={`${API_BASE}/api/logs/download?path=${encodeURIComponent(selectedFile)}`}
-            download
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            📥 이 로그 파일 다운로드
-          </a>
-        </div>
-      )}
-
-      {/* 오류 메시지 */}
-      {error && <p style={{ color: "red", marginTop: 10 }}>{error}</p>}
-
-      {/* CSV 테이블 출력 */}
-      {headers.length > 0 && csvData.length > 0 && (
-        <table
-          border="1"
-          cellPadding="6"
-          style={{
-            marginTop: 20,
-            width: "100%",
-            borderCollapse: "collapse",
-            fontSize: "14px",
-          }}
-        >
-          <thead style={{ background: "#f5f5f5" }}>
+      {!loading && !error && csvData.length > 0 && (
+        <table style={{ borderCollapse: "collapse", width: "100%" }}>
+          <thead>
             <tr>
-              {headers.map((header, i) => (
-                <th key={i}>{header}</th>
+              {Object.keys(csvData[0]).map((header) => (
+                <th
+                  key={header}
+                  style={{ border: "1px solid #ccc", padding: "8px", background: "#f9f9f9" }}
+                >
+                  {header}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {csvData.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                {headers.map((header, colIndex) => (
-                  <td key={colIndex}>{row[header]}</td>
+            {csvData.map((row, i) => (
+              <tr key={i}>
+                {Object.values(row).map((cell, j) => (
+                  <td key={j} style={{ border: "1px solid #ccc", padding: "8px" }}>{cell}</td>
                 ))}
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+
+      {!loading && !error && csvData.length === 0 && (
+        <p>데이터 없음</p>
       )}
     </div>
   );

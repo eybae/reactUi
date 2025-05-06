@@ -1,12 +1,35 @@
-import { useState } from "react";
+// 📁 src/pages/GroupControl.jsx
+import { useEffect } from "react";
 import axios from "axios";
 import DeviceStatusBar from "../components/DeviceStatusBar";
+import { useLamp } from "../context/LampContext.jsx";
+import { useLampSettings } from "../context/LampSettingsContext.jsx";
 
 export default function GroupControl() {
-  const [state, setState] = useState("off");
-  const [brightness, setBrightness] = useState(1);
-  const [onTime, setOnTime] = useState("19:00");
-  const [offTime, setOffTime] = useState("05:00");
+  const { socket } = useLamp();
+  const {
+    state,
+    setState,
+    brightness,
+    setBrightness,
+    onTime,
+    setOnTime,
+    offTime,
+    setOffTime,
+  } = useLampSettings();
+
+  useEffect(() => {
+    const handleUpdate = (data) => {
+      if (data.status !== state || data.brightness !== brightness) {
+        alert(`❌ ${data.device} 설정 불일치! (상태:${data.status}, 밝기:${data.brightness})`);
+      } else {
+        console.log(`✅ ${data.device} 상태 정상 수신됨`);
+      }
+    };
+
+    socket.on("device_status_update", handleUpdate);
+    return () => socket.off("device_status_update", handleUpdate);
+  }, [socket, state, brightness]);
 
   const handleSubmit = async () => {
     try {
