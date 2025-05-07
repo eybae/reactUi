@@ -1,12 +1,24 @@
 // 📁 src/pages/GroupControl.jsx
 import { useEffect } from "react";
 import axios from "axios";
-import DeviceStatusBar from "../components/DeviceStatusBar";
 import { useLamp } from "../context/LampContext.jsx";
 import { useLampSettings } from "../context/LampSettingsContext.jsx";
 
+const DEVICE_LIST = {
+  Lamp1: "0080e1150000be14",
+  Lamp2: "0080e1150000cda3",
+  Lamp3: "0080e1150000c318",
+  Lamp4: "0080e1150000ce98",
+  Lamp5: "0080e1150000cf78",
+  Lamp6: "0080e1150000aaa2",
+  Lamp7: "0080e1150000a553",
+  Lamp8: "0080e1150000a2f4",
+  Lamp9: "0080e11500009f15",
+  Lamp10: "0080e11500009bd6",
+};
+
 export default function GroupControl() {
-  const { socket } = useLamp();
+  const { socket, ledStates } = useLamp();
   const {
     state,
     setState,
@@ -53,7 +65,34 @@ export default function GroupControl() {
 
   return (
     <div>
-      <DeviceStatusBar />
+      <div style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: "1rem",
+        padding: "1rem",
+      }}>
+        {Object.entries(DEVICE_LIST).map(([name]) => {
+          const actual = ledStates[name] || { status: "off", brightness: 0 };
+          const isOn = actual.status === "on";
+          return (
+            <div
+              key={name}
+              style={{
+                width: "100px",
+                padding: "0.5rem",
+                border: "1px solid #ccc",
+                borderRadius: "6px",
+                backgroundColor: isOn ? "#d1fae5" : "#f3f4f6",
+                textAlign: "center",
+              }}
+            >
+              <strong>{name}</strong>
+              <div style={{ fontSize: "0.9rem" }}>전원: {actual.status}</div>
+              <div style={{ fontSize: "0.9rem" }}>밝기: {actual.brightness}</div>
+            </div>
+          );
+        })}
+      </div>
 
       <div style={{ padding: "20px", maxWidth: "600px", margin: "0 auto" }}>
         <h2>💡 일괄 제어</h2>

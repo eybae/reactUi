@@ -19,7 +19,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!leafletMap.current && mapRef.current) {
-      leafletMap.current = L.map(mapRef.current).setView([37.5665, 126.978], 13);
+      leafletMap.current = L.map(mapRef.current).setView([37.5665, 126.978], 17);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap",
       }).addTo(leafletMap.current);

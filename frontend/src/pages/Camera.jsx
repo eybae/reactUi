@@ -51,6 +51,15 @@ export default function CameraControl() {
     }
   };
 
+  const handleCallOsdMenu = async () => {
+      try {
+  await axios.post(`${backendUrl}/ptz/osd`);
+      alert("📺 OSD 메뉴 호출됨 — 카메라 화면에서 설정 변경하세요.");
+        } catch (err) {
+  console.error("OSD 호출 실패", err);
+    }
+  };
+
   const handleRecallPreset = async () => {
     try {
       await axios.post(`${backendUrl}/ptz/preset/recall`, {
@@ -60,6 +69,19 @@ export default function CameraControl() {
       console.error("프리셋 이동 실패", err);
     }
   };
+
+  const handleOsdConfirmIris = async () => {
+    await axios.post(`${backendUrl}/ptz/osd/confirm/iris`);
+  };
+  
+    const handleOsdCancel = async () => {
+    await axios.post(`${backendUrl}/ptz/osd/cancel`);
+  };
+
+  const handleOsdCancelZoom = async () => {
+    await axios.post(`${backendUrl}/ptz/osd/cancel/zoom`);
+  };
+  
 
   return (
     <div style={{ padding: 20 }}>
@@ -134,6 +156,14 @@ export default function CameraControl() {
         />
         <button onClick={handleStorePreset}>📌 위치 저장</button>
         <button onClick={handleRecallPreset}>📍 위치 이동</button>
+      </div>
+      
+      <button onClick={handleCallOsdMenu}>📺 OSD 메뉴 호출</button>
+      
+      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+        <button onClick={handleOsdConfirmIris}>✅ 선택 (Iris Open)</button>
+        <button onClick={handleOsdCancel}>↩️ 취소 (Iris Close)</button>
+        <button onClick={handleOsdCancelZoom}>↩️ 취소 (Zoom Out)</button>
       </div>
 
       {/* 카메라 스트리밍 */}

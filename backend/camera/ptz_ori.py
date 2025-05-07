@@ -109,32 +109,3 @@ def send_preset_recall(preset_id):
     command = pelco_command(0x00, 0x07, 0x00, preset_id)
     send_pelco_d(command)
     print(f"📥 프리셋 호출: {preset_id}")
-    
-def call_osd_menu():
-    # Preset 95 호출 (OSD 메뉴)
-    command = pelco_command(0x00, 0x07, 0x00, 95)
-    send_pelco_d(command)
-    print("📺 OSD 메뉴 호출됨 (Preset 95)")
-    
-
-def osd_confirm_iris_open():
-    command = pelco_command(0x02, 0x00, 0x00, 0x00)
-    send_pelco_d(command)
-    time.sleep(0.5)
-    send_pelco_d(pelco_command(0x00, 0x00, 0x00, 0x00))
-
-
-def osd_cancel():
-    # 시도 1: Iris Close
-    command = pelco_command(0x04, 0x00, 0x00, 0x00)
-    send_pelco_d(command)
-    time.sleep(0.5)
-    send_pelco_d(pelco_command(0x00, 0x00, 0x00, 0x00))
-
-def osd_cancel_zoom_out():
-    # 시도 2: Zoom Out
-    command = pelco_command(0x00, 0x40, 0x00, 0x00)
-    send_pelco_d(command)
-    time.sleep(0.5)
-    send_pelco_d(pelco_command(0x00, 0x00, 0x00, 0x00))
-    

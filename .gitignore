@@ -16,6 +16,9 @@ node_modules/
 dist/
 .env.local
 *.log
+*.mp4
+*.csv
+*.pyc
 
 # Vite cache
 .vite

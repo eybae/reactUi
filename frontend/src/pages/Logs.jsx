@@ -4,44 +4,86 @@ import axios from "axios";
 import Papa from "papaparse";
 
 export default function Logs() {
+  const [fileList, setFileList] = useState([]);
+  const [selectedFile, setSelectedFile] = useState(null);
   const [csvData, setCsvData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetchLogs = async () => {
+  const fetchFileList = async () => {
+    try {
+      const res = await axios.get("http://localhost:5050/api/logs/list");
+      setFileList(res.data);
+      if (res.data.length > 0) setSelectedFile(res.data[0].relative_path);
+    } catch (err) {
+      console.error("❌ 파일 목록 불러오기 실패:", err);
+    }
+  };
+
+  const fetchFilePreview = async (filePath) => {
     setLoading(true);
     setError(null);
+    setCsvData([]);
     try {
-      const res = await axios.get("http://localhost:5050/logs");
-      const text = res.data;
-      const parsed = Papa.parse(text, { header: true });
-      setCsvData(parsed.data);
+      const res = await axios.get("http://localhost:5050/api/logs/file", {
+        params: { path: filePath },
+      });
+      if (filePath.endsWith(".csv")) {
+        const parsed = Papa.parse(res.data, { header: true });
+        setCsvData(parsed.data);
+      }
     } catch (err) {
-      console.error("❌ 로그 불러오기 실패:", err);
-      setError("로그 불러오기 실패");
+      console.error("❌ 파일 미리보기 실패:", err);
+      setError("파일 미리보기 실패");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchLogs();
+    fetchFileList();
   }, []);
+
+  useEffect(() => {
+    if (selectedFile) fetchFilePreview(selectedFile);
+  }, [selectedFile]);
+
+  const downloadLink = selectedFile
+    ? `http://localhost:5050/api/logs/download?path=${encodeURIComponent(selectedFile)}`
+    : "#";
 
   return (
     <div style={{ padding: "1rem" }}>
-      <h2>Jetson 로그 미리보기</h2>
-      <button
-        onClick={fetchLogs}
-        style={{ marginBottom: "1rem", padding: "0.5rem 1rem" }}
-      >
-        🔄 새로고침
-      </button>
+      <h2>Jetson 파일 브라우저</h2>
+
+      <div style={{ marginBottom: "1rem" }}>
+        <label>📂 파일 선택: </label>
+        <select
+          value={selectedFile || ""}
+          onChange={(e) => setSelectedFile(e.target.value)}
+        >
+          {fileList.map((file) => (
+            <option key={file.relative_path} value={file.relative_path}>
+              {file.name}
+            </option>
+          ))}
+        </select>
+
+        {selectedFile && (
+          <a
+            href={downloadLink}
+            style={{ marginLeft: "1rem" }}
+            download
+          >
+            ⬇️ 다운로드
+          </a>
+        )}
+      </div>
 
       {loading && <p>⏳ 불러오는 중...</p>}
       {error && <p style={{ color: "red" }}>{error}</p>}
 
-      {!loading && !error && csvData.length > 0 && (
+      {!loading && !error && selectedFile && selectedFile.endsWith(".csv") && csvData.length > 0 && (
         <table style={{ borderCollapse: "collapse", width: "100%" }}>
           <thead>
             <tr>
@@ -67,8 +109,8 @@ export default function Logs() {
         </table>
       )}
 
-      {!loading && !error && csvData.length === 0 && (
-        <p>데이터 없음</p>
+      {!loading && !error && selectedFile && !selectedFile.endsWith(".csv") && (
+        <p>📁 미리보기 지원되지 않음: {selectedFile.split("/").pop()}</p>
       )}
     </div>
   );

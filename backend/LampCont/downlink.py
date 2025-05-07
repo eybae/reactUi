@@ -16,27 +16,21 @@ server = "localhost:8080"
 api_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJjaGlycHN0YWNrIiwiaXNzIjoiY2hpcnBzdGFjayIsInN1YiI6IjZmZWFkYzhjLThjMDYtNDM2MS1iMWUzLWMwYWQ0ODY4ZGNiNyIsInR5cCI6ImtleSJ9.GkWEp3WiRCidd5TkJe5ocmeKdK6vy_4_si2hbitgZ9g"
 
 def sendData(devId, data):
-  # Connect without using TLS.
-  channel = grpc.insecure_channel(server)
+    print(f"🚀 Enqueue 요청: {devId} → {[hex(b) for b in data]}")
 
-  # Device-queue API client.
-  client = api.DeviceServiceStub(channel)
+    channel = grpc.insecure_channel(server)
+    client = api.DeviceServiceStub(channel)
+    auth_token = [("authorization", f"Bearer {api_token}")]
 
-  # Define the API key meta-data.
-  auth_token = [("authorization", "Bearer %s" % api_token)]
+    req = api.EnqueueDeviceQueueItemRequest()
+    req.queue_item.confirmed = False
+    req.queue_item.data = data
+    req.queue_item.dev_eui = devId
+    req.queue_item.f_port = 2
 
-  # Construct request.
-  req = api.EnqueueDeviceQueueItemRequest()
-  req.queue_item.confirmed = False
-  req.queue_item.data = data         #bytes([0x01, 0x02, 0x03])
-  req.queue_item.dev_eui = devId
-  req.queue_item.f_port = 2
+    try:
+        resp = client.Enqueue(req, metadata=auth_token)
+        print(f"✅ Enqueue 성공: {devId} → ID: {resp.id}")
+    except grpc.RpcError as e:
+        print(f"❌ Enqueue 실패: {devId} → {e.code()} - {e.details()}")
 
-  try:
-      resp = client.Enqueue(req, metadata=auth_token)
-      print("✅ Enqueue 성공:", resp.id)
-  except grpc.RpcError as e:
-      print("❌ gRPC 오류:", e.code(), e.details())
-
-  # Print the downlink id
-  print(resp.id)

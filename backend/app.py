@@ -41,9 +41,9 @@ DEV_MAP = {
     #"Lamp1": "0080e115000ae9ae"
     "Lamp1": "0080e1150000be14",
     "Lamp2": "0080e1150000cda3",
-    #"Lamp3": "0080e1150000c318",
-    #"Lamp4": "0080e1150000ce98",
-    #"Lamp5": "0080e1150000cf78",
+    "Lamp3": "0080e1150000c318",
+    "Lamp4": "0080e1150000ce98",
+    "Lamp5": "0080e1150000cf78",
 }
 
 # 상태 저장
@@ -183,6 +183,44 @@ def group_control():
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
         
+@app.route('/single/control', methods=['POST'])
+def single_control():
+    try:
+        data = request.json
+        dev_eui = data.get("devEui")
+        state = data.get("state", "off")
+        brightness = int(data.get("brightness", 1))
+        on_time = data.get("onTime", "00:00")
+        off_time = data.get("offTime", "00:00")
+
+        # devEUI -> Lamp 키 매핑
+        lamp_key = None
+        for k, v in DEV_MAP.items():
+            if v == dev_eui:
+                lamp_key = k
+                break
+        if lamp_key is None:
+            return jsonify({"status": "error", "message": f"Unknown devEUI: {dev_eui}"}), 400
+
+        # 기대 상태 등록
+        expected_states[lamp_key] = {
+            "status": state,
+            "brightness": brightness,
+        }
+        retry_counts[lamp_key] = 0
+        last_sent_time[lamp_key] = time.time()
+
+        # 전송 payload 생성 및 전송
+        payload_bytes = dataParsing.encode_group_payload(0, 1, state, brightness, on_time, off_time)
+        downlink.sendData(dev_eui, payload_bytes)
+
+        print(f"📤 개별제어 전송: {lamp_key}({dev_eui}) => {payload_bytes}")
+        return jsonify({"status": "success"})
+
+    except Exception as e:
+        print("❌ 개별제어 오류:", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @app.route('/')
 def index():
@@ -227,6 +265,26 @@ def ptz_recall_preset():
     ptz.send_preset_recall(preset_id)
     return jsonify({"success": True, "preset_id": preset_id})
 
+@app.route("/ptz/osd", methods=["POST"])
+def ptz_call_osd():
+    ptz.call_osd_menu()
+    return jsonify({"success": True, "message": "OSD 호출됨"})
+
+@app.route("/ptz/osd/confirm/iris", methods=["POST"])
+def ptz_osd_confirm_iris():
+    ptz.osd_confirm_iris_open()
+    return jsonify({"success": True})
+
+@app.route("/ptz/osd/cancel", methods=["POST"])
+def ptz_osd_cancel():
+    ptz.osd_cancel()
+    return jsonify({"success": True})
+
+@app.route("/ptz/osd/cancel/zoom", methods=["POST"])
+def ptz_osd_cancel_zoom():
+    ptz.osd_cancel_zoom_out()
+    return jsonify({"success": True})
+
 @socketio.on('disconnect')
 def handle_disconnect():
     print(f"❌ WebSocket 연결 종료됨: {request.sid}")
@@ -237,18 +295,17 @@ LOG_DIRS = {
 }
 
 # 재귀적으로 로그 파일 찾기
-def find_all_logs(base_path, rel_base=""):
-    log_files = []
-    for root, _, files in os.walk(base_path):
-        for f in files:
-            if f.endswith(".csv") or f.endswith(".log"):
-                full_path = os.path.join(root, f)
-                rel_path = os.path.relpath(full_path, base_path)
-                log_files.append({
-                    "name": f,
-                    "relative_path": os.path.join(rel_base, rel_path).replace("\\", "/")
-                })
-    return log_files
+def find_all_logs(folder, rel_base):
+    files = []
+    for root, _, filenames in os.walk(folder):
+        for fname in filenames:
+            # 🔽 필터링 제거
+            rel_path = os.path.relpath(os.path.join(root, fname), folder)
+            files.append({
+                "name": fname,
+                "relative_path": os.path.join(rel_base, rel_path).replace("\\", "/")
+            })
+    return files
 
 # 모든 .csv 파일 리스트 API
 @app.route('/api/logs/list')
@@ -304,12 +361,12 @@ def download_log_file():
 
 if __name__ == '__main__':
     ptz.init_serial()
-    #mqtt.on_connect = on_connect
-    #mqtt.on_message = on_message
-    #mqtt.connect(BROKER, 1883, 60)
-    #mqtt.loop_start()
+    mqtt.on_connect = on_connect
+    mqtt.on_message = on_message
+    mqtt.connect(BROKER, 1883, 60)
+    mqtt.loop_start()
 
-    #monitor_thread = threading.Thread(target=monitor_expected_states, daemon=True)
-    #monitor_thread.start()
+    monitor_thread = threading.Thread(target=monitor_expected_states, daemon=True)
+    monitor_thread.start()
 
     socketio.run(app, host='0.0.0.0', port=5050, allow_unsafe_werkzeug=True)
