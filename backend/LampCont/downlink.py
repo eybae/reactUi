@@ -9,11 +9,8 @@ from chirpstack_api import api
 # This must point to the API interface.
 server = "localhost:8080"
 
-# The DevEUI for which you want to enqueue the downlink.
-#dev_eui = "0101010101010101"
-
 # The API token (retrieved using the web-interface).
-api_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJjaGlycHN0YWNrIiwiaXNzIjoiY2hpcnBzdGFjayIsInN1YiI6IjZmZWFkYzhjLThjMDYtNDM2MS1iMWUzLWMwYWQ0ODY4ZGNiNyIsInR5cCI6ImtleSJ9.GkWEp3WiRCidd5TkJe5ocmeKdK6vy_4_si2hbitgZ9g"
+api_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJjaGlycHN0YWNrIiwiaXNzIjoiY2hpcnBzdGFjayIsInN1YiI6Ijc5Y2RhYjljLTViNDQtNDNhNi04YjVkLTdjZjQ0NmNmNzQ2NCIsInR5cCI6ImtleSJ9.bK0X3K9jq58tAWC8CZ5b3Tgb36Hcr87Dl2koiQwDCkY"
 
 def sendData(devId, data):
     print(f"🚀 Enqueue 요청: {devId} → {[hex(b) for b in data]}")

@@ -1,0 +1,40 @@
+/* src/components/DeviceStatusBar.css */
+
+.device-bar-container {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 10px;
+    border-bottom: 1px solid #ccc;
+    background-color: #fff;
+    gap: 10px;
+  }
+  
+  .device-box {
+    min-width: 100px;
+    padding: 10px;
+    border-radius: 10px;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+  }
+  
+  .device-box.on {
+    background-color: #4caf50;
+    color: white;
+  }
+  
+  .device-box.off {
+    background-color: #e0e0e0;
+    color: #333;
+  }
+  
+  .device-title {
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+  
+  .device-detail {
+    font-size: 0.8rem;
+  }
+  

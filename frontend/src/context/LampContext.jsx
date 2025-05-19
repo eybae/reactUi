@@ -1,11 +1,7 @@
-// 📁 src/context/LampContext.jsx
-import { createContext, useContext, useState, useEffect } from 'react';
-import io from 'socket.io-client';
-
-const socket = io('http://localhost:5050', {
-  transports: ['websocket'],
-  withCredentials: false,
-});
+// ✅ LampContext.jsx 개선 버전
+import { createContext, useContext, useEffect, useState } from "react";
+import axios from "axios";
+import socket from "../socket";
 
 const LampContext = createContext();
 
@@ -13,39 +9,44 @@ export function LampProvider({ children }) {
   const [ledStates, setLedStates] = useState({});
 
   useEffect(() => {
-    socket.on('connect', () => {
-      console.log('✅ Socket 연결됨');
+    // 1. 초기 상태 수신
+    axios.get("http://localhost:5050/api/devices/status").then((res) => {
+      setLedStates(res.data);
+      console.log("📥 초기 상태 수신 완료:", res.data);
     });
 
-    socket.on('disconnect', () => {
-      console.warn('⚠️ Socket 연결 끊김');
-    });
-
-    socket.on('device_status_update', (data) => {
-      console.log('📥 수신됨 (device_status_update):', data);
+    // 2. 일반 상태 업데이트 수신
+    socket.on("device_status_update", ({ device, status, brightness, pending }) => {
+      console.log("📥 상태 업데이트:", device, status, brightness, pending);
       setLedStates((prev) => ({
         ...prev,
-        [data.device]: {
-          status: data.status,
-          brightness: data.brightness,
+        [device]: { status, brightness, pending },
+      }));
+    });
+
+    // 3. txack 수신 시 선반영 (예: pending 상태 true로 전환)
+    socket.on("device_txack", ({ device }) => {
+      console.log("📡 txack 수신:", device);
+      setLedStates((prev) => ({
+        ...prev,
+        [device]: {
+          ...(prev[device] || { status: "off", brightness: 0 }),
+          pending: true,
         },
       }));
     });
 
     return () => {
-      socket.off('device_status_update');
-      socket.off('connect');
-      socket.off('disconnect');
+      socket.off("device_status_update");
+      socket.off("device_txack");
     };
   }, []);
 
   return (
-    <LampContext.Provider value={{ ledStates, socket }}>
+    <LampContext.Provider value={{ ledStates, setLedStates, socket }}>
       {children}
     </LampContext.Provider>
   );
 }
 
-export function useLamp() {
-  return useContext(LampContext);
-}
+export const useLamp = () => useContext(LampContext);

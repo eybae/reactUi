@@ -1,21 +1,14 @@
 import sys
-
-print("🔍 Python sys.version:", sys.version)
-print("🔍 sys.path:")
-for p in sys.path:
-    print("   ", p)
-
 import json
-print("✅ json module loaded from:", json.__file__)
-
 import time
-#import json
 import base64
 import traceback
 import threading
 import re
+import os
+from queue import Queue
 
-from flask import Flask, request, jsonify, send_file,Response
+from flask import Flask, request, jsonify, send_file, Response
 from flask_socketio import SocketIO
 from flask_cors import CORS
 from paho.mqtt.client import Client as MQTTClient
@@ -23,8 +16,6 @@ from paho.mqtt.client import Client as MQTTClient
 from LampCont import dataParsing
 from LampCont import downlink
 from camera import ptz
-
-import os
 
 app = Flask(__name__)
 CORS(app)
@@ -37,49 +28,42 @@ TOPIC = 'application/46619040-fa61-4d88-a2bc-76032aeeb6f4/#'
 APPID = "46619040-fa61-4d88-a2bc-76032aeeb6f4"
 
 # 디바이스 정보
-DEV_MAP = {
-    #"Lamp1": "0080e115000ae9ae"
-    "Lamp1": "0080e1150000be14",
-    "Lamp2": "0080e1150000cda3",
-    "Lamp3": "0080e1150000c318",
-    "Lamp4": "0080e1150000ce98",
-    "Lamp5": "0080e1150000cf78",
+DEV_MAP = {    
+    "Lamp1": "0080e11500000001",
+    "Lamp2": "0080e11500000002",
+    "Lamp3": "0080e11500000003",
+    "Lamp4": "0080e11500000004",
+    "Lamp5": "0080e11500000005",
+    "Lamp6": "0080e11500000006",
+    "Lamp7": "0080e11500000007",
+    "Lamp8": "0080e11500000008",
+    "Lamp9": "0080e11500000009",
+    "Lamp10": "0080e1150000000a",
 }
 
 # 상태 저장
 led_states = {}
 expected_states = {}
-retry_counts = {}
 last_sent_time = {}
-RETRY_INTERVAL = 5
+retry_counts = {}  # 재시도 횟수 저장
 MAX_RETRY = 3
+STATE_FILE = "led_states.json"
+status_check_queue = Queue()
 
-# 상태 모니터링 스레드
+# 상태 저장/복원 함수
+def save_led_states():
+    with open(STATE_FILE, "w") as f:
+        json.dump(led_states, f)
 
-def monitor_expected_states():
-    while True:
-        now = time.time()
-        for led_key, expected in list(expected_states.items()):
-            retry = retry_counts.get(led_key, 0)
-            last_sent = last_sent_time.get(led_key, 0)
-
-            if retry >= MAX_RETRY:
-                continue
-
-            if now - last_sent >= RETRY_INTERVAL:
-                print(f"🔁 주기적 재전송: {led_key} ({retry + 1}/{MAX_RETRY})")
-                payload_bytes = dataParsing.encode_group_payload(
-                    0, 1,
-                    expected["status"],
-                    expected["brightness"],
-                    "00:00", "00:00"
-                )
-                dev_id = DEV_MAP.get(led_key)
-                if dev_id:
-                    downlink.sendData(dev_id, payload_bytes)
-                    last_sent_time[led_key] = now
-                    retry_counts[led_key] = retry + 1
-        time.sleep(1)
+def load_led_states():
+    global led_states
+    try:
+        with open(STATE_FILE) as f:
+            led_states = json.load(f)
+        print("📂 이전 상태 복구 완료:", led_states)
+    except:
+        led_states = {}
+        print("📁 상태 파일 없음. 새로 시작.")
 
 # MQTT 콜백
 
@@ -87,79 +71,125 @@ def on_connect(client, userdata, flags, rc):
     print("📡 MQTT 연결 완료")
     client.subscribe(TOPIC)
 
-
 def on_message(client, userdata, msg):
     try:
+        topic = msg.topic
         payload_str = msg.payload.decode()
         payload_json = json.loads(payload_str)
-        deviceInfo = payload_json.get("deviceInfo")
-        if not deviceInfo or "devEui" not in deviceInfo:
-            print("⚠️ deviceInfo 누락됨:", payload_json)
-            return
-        devEUI = deviceInfo.get("devEui")
 
-        dev_data = dataParsing.deviceDataParsing(payload_json)
+        # 공통 추출
+        device_info = payload_json.get("deviceInfo", {})
+        dev_eui = device_info.get("devEui")
+        dev_key = next((k for k, v in DEV_MAP.items() if v == dev_eui), dev_eui)
+
+        # ✅ txack 처리 (전송 확인만)
+        if topic.endswith("/event/txack"):
+            print(f"📨 txack 수신됨 → 명령 전송 확인: {dev_key}")
+            socketio.emit("device_txack", {
+                "device": dev_key
+            })
+            return  # 여기서 종료, ledStates 저장은 하지 않음
+
+        # ✅ uplink 수신 처리 (상태 파싱 및 UI 반영)
+        object_json = payload_json.get("objectJSON")
+        if object_json:
+            try:
+                obj = json.loads(object_json)
+                status = obj.get("status")
+                brightness = obj.get("brightness")
+                dev_data = {"status": status, "brightness": brightness}
+            except Exception as parse_err:
+                print("❌ objectJSON 파싱 오류:", parse_err)
+                return
+        else:
+            print("⚠️ objectJSON 없음, 기본 파싱 사용")
+            dev_data = dataParsing.deviceDataParsing(payload_json)
+
         print(f"🔎 파싱된 장비 상태: {dev_data}")
 
-        actual_status = dev_data
+        expected = expected_states.get(dev_key)
+        pending = (
+            expected
+            and (
+                dev_data.get("status") != expected.get("status")
+                or dev_data.get("brightness") != expected.get("brightness")
+            )
+        )
 
-        # devEUI -> Lamp 이름 찾기
-        dev_key = None
-        for k, v in DEV_MAP.items():
-            if v == devEUI:
-                dev_key = k
-                break
+        if not pending:
+            expected_states.pop(dev_key, None)
+            retry_counts.pop(dev_key, None)
+            last_sent_time.pop(dev_key, None)
 
-        if dev_key:
-            led_key = dev_key  # ex) Lamp1
-        else:
-            led_key = devEUI
+        # 상태 저장 및 전송
+        led_states[dev_key] = dev_data
+        save_led_states()
 
-        # 🔄 기대 상태와 일치하는지 먼저 확인하고 pop 처리
-        expected = expected_states.get(led_key)
-        if expected and actual_status == expected:
-            print(f"✅ 기대 상태 반영됨: {led_key}")
-            expected_states.pop(led_key, None)
-            retry_counts.pop(led_key, None)
-            last_sent_time.pop(led_key, None)
-
-        # ⚠️ 상태가 동일하더라도 emit()은 항상 수행
-        prev = led_states.get(led_key)
-        if prev == actual_status:
-            print(f"⚠️ 상태 동일 (무시됨): {led_key} => {actual_status}")
-            socketio.emit("device_status_update", {
-                "device": led_key,
-                "status": actual_status["status"],
-                "brightness": actual_status["brightness"]
-            })
-            return
-
-        # 💾 상태 저장
-        led_states[led_key] = actual_status
-        print(f"💾 저장됨: {led_key} -> 상태: {actual_status}")
-
-        # 📤 상태 전송
-        print(f"📤 UI로 전송: {led_key} => {actual_status}")
+        print(f"📤 UI로 전송: {dev_key} => {dev_data}, pending: {pending}")
         socketio.emit("device_status_update", {
-            "device": led_key,
-            "status": actual_status["status"],
-            "brightness": actual_status["brightness"]
+            "device": dev_key,
+            "status": dev_data["status"],
+            "brightness": dev_data["brightness"],
+            "pending": pending
         })
 
     except Exception as e:
         print(f"⚠️ on_message 처리 오류: {e}")
 
+# 상태 확인용 큐에 전체 장비 등록
+
+def enqueue_status_check():
+    time.sleep(10)
+    for dev_key in list(expected_states.keys()):
+        status_check_queue.put(dev_key)
+        print(f"📝 상태 확인 큐 등록: {dev_key}")
+
+# 하나씩 상태 확인 전송
+def sequential_status_check():
+    while True:
+        if not status_check_queue.empty():
+            led_key = status_check_queue.get()
+            expected = expected_states.get(led_key)
+            if not expected:
+                continue
+            actual = led_states.get(led_key)
+
+            if actual != expected:
+                count = retry_counts.get(led_key, 0)
+                if count < MAX_RETRY:
+                    print(f"🔁 상태 확인 재요청 ({count+1}/{MAX_RETRY}): {led_key} → {expected}")
+                    payload_bytes = dataParsing.encode_group_payload(
+                        0, 1,
+                        expected["status"],
+                        expected["brightness"],
+                        "00:00", "00:00"
+                    )
+                    dev_id = DEV_MAP.get(led_key)
+                    if dev_id:
+                        downlink.sendData(dev_id, payload_bytes)
+                    retry_counts[led_key] = count + 1
+                    status_check_queue.put(led_key)  # 다시 큐에 넣음
+                else:
+                    print(f"❌ 최대 재시도 초과: {led_key}")
+            else:
+                print(f"✅ 상태 일치 확인됨: {led_key}, 큐 제거")
+                retry_counts.pop(led_key, None)
+            time.sleep(5)
+
+# REST API
+@app.route("/api/devices/status")
+def get_all_led_states():
+    return jsonify(led_states)
 
 
 # 제어 API
-
 @app.route('/group/control', methods=['POST'])
 def group_control():
     data = request.json
     mode = data.get("mode", 0)
     cmd = data.get('cmd', 1)
     state = data.get('state', 'off')
-    brightness = data.get('brightness', 1)
+    brightness = data.get('brightness', 0)
     on_time = data.get('onTime', '00:00')
     off_time = data.get('offTime', '00:00')
 
@@ -172,9 +202,10 @@ def group_control():
                 "brightness": brightness
             }
             retry_counts[led_key] = 0
+            status_check_queue.put(led_key)
             last_sent_time[led_key] = time.time()
             downlink.sendData(devId, payload_bytes)
-            time.sleep(0.5)
+            #time.sleep(0.5)
 
         print(f"📤 전송 바이트: {[hex(b) for b in payload_bytes]}")
         return jsonify({"status": "success"})
@@ -189,7 +220,7 @@ def single_control():
         data = request.json
         dev_eui = data.get("devEui")
         state = data.get("state", "off")
-        brightness = int(data.get("brightness", 1))
+        brightness = int(data.get("brightness", 0))
         on_time = data.get("onTime", "00:00")
         off_time = data.get("offTime", "00:00")
 
@@ -208,6 +239,7 @@ def single_control():
             "brightness": brightness,
         }
         retry_counts[lamp_key] = 0
+        status_check_queue.put(lamp_key)
         last_sent_time[lamp_key] = time.time()
 
         # 전송 payload 생성 및 전송
@@ -360,13 +392,14 @@ def download_log_file():
    
 
 if __name__ == '__main__':
+    load_led_states()
     ptz.init_serial()
     mqtt.on_connect = on_connect
     mqtt.on_message = on_message
     mqtt.connect(BROKER, 1883, 60)
     mqtt.loop_start()
 
-    monitor_thread = threading.Thread(target=monitor_expected_states, daemon=True)
-    monitor_thread.start()
+    threading.Thread(target=enqueue_status_check, daemon=True).start()
+    threading.Thread(target=sequential_status_check, daemon=True).start()
 
     socketio.run(app, host='0.0.0.0', port=5050, allow_unsafe_werkzeug=True)

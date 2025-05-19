@@ -5,16 +5,16 @@ import { useLamp } from "../context/LampContext.jsx";
 import { useLampSettings } from "../context/LampSettingsContext.jsx";
 
 const DEVICE_LIST = {
-  Lamp1: "0080e1150000be14",
-  Lamp2: "0080e1150000cda3",
-  Lamp3: "0080e1150000c318",
-  Lamp4: "0080e1150000ce98",
-  Lamp5: "0080e1150000cf78",
-  Lamp6: "0080e1150000aaa2",
-  Lamp7: "0080e1150000a553",
-  Lamp8: "0080e1150000a2f4",
-  Lamp9: "0080e11500009f15",
-  Lamp10: "0080e11500009bd6",
+  Lamp1: "0080e11500000001",
+  Lamp2: "0080e11500000002",
+  Lamp3: "0080e11500000003",
+  Lamp4: "0080e11500000004",
+  Lamp5: "0080e11500000005",
+  Lamp6: "0080e11500000006",
+  Lamp7: "0080e11500000007",
+  Lamp8: "0080e11500000008",
+  Lamp9: "0080e11500000009",
+  Lamp10: "0080e1150000000a",
 };
 
 export default function GroupControl() {
@@ -74,6 +74,7 @@ export default function GroupControl() {
         {Object.entries(DEVICE_LIST).map(([name]) => {
           const actual = ledStates[name] || { status: "off", brightness: 0 };
           const isOn = actual.status === "on";
+          const isPending = actual.pending;
           return (
             <div
               key={name}
@@ -82,7 +83,12 @@ export default function GroupControl() {
                 padding: "0.5rem",
                 border: "1px solid #ccc",
                 borderRadius: "6px",
-                backgroundColor: isOn ? "#d1fae5" : "#f3f4f6",
+                //backgroundColor: isOn ? "#d1fae5" : "#f3f4f6",
+                backgroundColor: isPending
+                  ? "#ffeeba" // txack 후 대기 상태 색
+                  : isOn
+                  ? "#d1fae5"
+                  : "#f3f4f6",
                 textAlign: "center",
               }}
             >
@@ -134,7 +140,7 @@ export default function GroupControl() {
           <label>밝기: {brightness}</label>
           <input
             type="range"
-            min="1"
+            min="0"
             max="5"
             value={brightness}
             onChange={(e) => setBrightness(parseInt(e.target.value))}

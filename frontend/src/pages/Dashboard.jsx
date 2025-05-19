@@ -2,11 +2,20 @@
 import { useRef, useEffect } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { useLamp } from "../context/LampContext.jsx";
+import DeviceStatusBar from "../components/DeviceStatusBar";
+import { useLamp } from "../context/LampContext";
 
 const DEV_KEYS = [
-  "Lamp1", "Lamp2", "Lamp3", "Lamp4", "Lamp5",
-  "Lamp6", "Lamp7", "Lamp8", "Lamp9", "Lamp10",
+  "Lamp1",
+  "Lamp2",
+  "Lamp3",
+  "Lamp4",
+  "Lamp5",
+  "Lamp6",
+  "Lamp7",
+  "Lamp8",
+  "Lamp9",
+  "Lamp10",
 ];
 
 export default function Dashboard() {

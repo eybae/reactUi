@@ -74,7 +74,7 @@ def encode_group_payload(mode, cmd, state, dem, on_time, off_time):
     mode_byte = int(mode) & 0xFF
     cmd_byte = int(cmd) & 0xFF
     state_byte = 0x01 if state == "on" else 0x00
-    dem_byte = max(1, min(int(dem), 5))
+    dem_byte = max(0, min(int(dem), 5))
 
     def time_to_bytes(t):
         try:

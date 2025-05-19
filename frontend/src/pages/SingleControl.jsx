@@ -4,16 +4,16 @@ import { useLamp } from "../context/LampContext.jsx";
 import axios from "axios";
 
 const DEVICE_LIST = {
-  Lamp1: "0080e1150000be14",
-  Lamp2: "0080e1150000cda3",
-  Lamp3: "0080e1150000c318",
-  Lamp4: "0080e1150000ce98",
-  Lamp5: "0080e1150000cf78",
-  Lamp6: "0080e1150000aaa2",
-  Lamp7: "0080e1150000a553",
-  Lamp8: "0080e1150000a2f4",
-  Lamp9: "0080e11500009f15",
-  Lamp10: "0080e11500009bd6",
+  Lamp1: "0080e11500000001",
+  Lamp2: "0080e11500000002",
+  Lamp3: "0080e11500000003",
+  Lamp4: "0080e11500000004",
+  Lamp5: "0080e11500000005",
+  Lamp6: "0080e11500000006",
+  Lamp7: "0080e11500000007",
+  Lamp8: "0080e11500000008",
+  Lamp9: "0080e11500000009",
+  Lamp10: "0080e1150000000a",
 };
 
 export default function SingleControl() {
@@ -24,7 +24,7 @@ export default function SingleControl() {
     for (const [name, devEui] of Object.entries(DEVICE_LIST)) {
       initial[devEui] = {
         state: "off",
-        brightness: 1,
+        brightness: 0,
         onTime: "00:00",
         offTime: "00:00",
         selected: false,
@@ -81,6 +81,7 @@ export default function SingleControl() {
         {Object.entries(DEVICE_LIST).map(([name, devEui]) => {
           const actual = ledStates[name] || { status: "off", brightness: 0 };
           const isOn = actual.status === "on";
+          const isPending = actual.pending;
           return (
             <div
               key={devEui}
@@ -89,7 +90,12 @@ export default function SingleControl() {
                 padding: "0.5rem",
                 border: "1px solid #ccc",
                 borderRadius: "6px",
-                backgroundColor: isOn ? "#d1fae5" : "#f3f4f6",
+                //backgroundColor: isOn ? "#d1fae5" : "#f3f4f6",
+                backgroundColor: isPending
+                  ? "#ffeeba"
+                  : isOn
+                  ? "#d1fae5"
+                  : "#f3f4f6",
                 textAlign: "center",
               }}
             >
@@ -143,7 +149,7 @@ export default function SingleControl() {
                 밝기:
                 <input
                   type="range"
-                  min="1"
+                  min="0"
                   max="5"
                   value={setting.brightness}
                   onChange={(e) => updateSetting(devEui, "brightness", parseInt(e.target.value))}
