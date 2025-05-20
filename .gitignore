@@ -14,3 +14,5 @@ node_modules/
 
 # 실행 파일
 *.jar
+
+backend/camera/*.mp4
