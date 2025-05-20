@@ -49,6 +49,8 @@ retry_counts = {}  # 재시도 횟수 저장
 MAX_RETRY = 3
 STATE_FILE = "led_states.json"
 status_check_queue = Queue()
+cmdSendFlag = False
+cmdSendTime = None
 
 # 상태 저장/복원 함수
 def save_led_states():
@@ -136,45 +138,60 @@ def on_message(client, userdata, msg):
     except Exception as e:
         print(f"⚠️ on_message 처리 오류: {e}")
 
-# 상태 확인용 큐에 전체 장비 등록
-
-def enqueue_status_check():
-    time.sleep(10)
-    for dev_key in list(expected_states.keys()):
-        status_check_queue.put(dev_key)
-        print(f"📝 상태 확인 큐 등록: {dev_key}")
-
-# 하나씩 상태 확인 전송
-def sequential_status_check():
+def retry_check_loop():
+    global cmdSendFlag, cmdSendTime
     while True:
-        if not status_check_queue.empty():
-            led_key = status_check_queue.get()
-            expected = expected_states.get(led_key)
-            if not expected:
-                continue
-            actual = led_states.get(led_key)
+        #time.sleep(1)
+        if not cmdSendFlag:
+            continue
 
-            if actual != expected:
-                count = retry_counts.get(led_key, 0)
-                if count < MAX_RETRY:
-                    print(f"🔁 상태 확인 재요청 ({count+1}/{MAX_RETRY}): {led_key} → {expected}")
-                    payload_bytes = dataParsing.encode_group_payload(
-                        0, 1,
-                        expected["status"],
-                        expected["brightness"],
-                        "00:00", "00:00"
-                    )
-                    dev_id = DEV_MAP.get(led_key)
-                    if dev_id:
-                        downlink.sendData(dev_id, payload_bytes)
-                    retry_counts[led_key] = count + 1
-                    status_check_queue.put(led_key)  # 다시 큐에 넣음
-                else:
-                    print(f"❌ 최대 재시도 초과: {led_key}")
-            else:
-                print(f"✅ 상태 일치 확인됨: {led_key}, 큐 제거")
-                retry_counts.pop(led_key, None)
-            time.sleep(5)
+        if time.time() - cmdSendTime >= 40:
+            print("30초 경과 → 재전송 시작")
+            cmdSendFlag = False  # 한 번만 실행
+
+            for attempt in range(2):  # 최대 2회 반복
+                current_queue = list(status_check_queue.queue)
+                for dev_key in current_queue:
+                    expected = expected_states.get(dev_key)
+                    if expected is None:
+                        print(f"⚠️ expected 상태 없음: {dev_key} → 건너뜀")
+                        continue
+
+                    actual = led_states.get(dev_key)
+                    if actual is not None and expected is not None and actual == expected:
+                        print(f"상태 일치: {dev_key} → 큐 제거")
+                        try:
+                            status_check_queue.queue.remove(dev_key)
+                        except ValueError:
+                            pass
+                        retry_counts.pop(dev_key, None)
+                        expected_states.pop(dev_key, None)
+                        continue
+
+                    count = retry_counts.get(dev_key, 0)
+                    if count < 2:
+                        print(f"재전송 ({count+1}/2): {dev_key}")
+                        payload_bytes = dataParsing.encode_group_payload(
+                            0, 1,
+                            expected.get("status", "off"),
+                            expected.get("brightness", 0),
+                            "00:00", "00:00"
+                        )
+                        dev_id = DEV_MAP.get(dev_key)
+                        if dev_id:
+                            downlink.sendData(dev_id, payload_bytes)
+                        retry_counts[dev_key] = count + 1
+                    else:
+                        print(f"최대 재전송 초과: {dev_key} → 큐 제거")
+                        try:
+                            status_check_queue.queue.remove(dev_key)
+                        except ValueError:
+                            pass
+                        retry_counts.pop(dev_key, None)
+                        expected_states.pop(dev_key, None)
+
+                    time.sleep(5)  # 각 장비별로 5초 간격 전송
+
 
 # REST API
 @app.route("/api/devices/status")
@@ -192,9 +209,12 @@ def group_control():
     brightness = data.get('brightness', 0)
     on_time = data.get('onTime', '00:00')
     off_time = data.get('offTime', '00:00')
+    global cmdSendFlag, cmdSendTime
+    cmdSendFlag = True
+    cmdSendTime = time.time()
 
     try:
-        payload_bytes = dataParsing.encode_group_payload(mode, cmd, state, brightness, on_time, off_time)
+        payload_bytes = dataParsing.encode_group_payload(1, cmd, state, brightness, on_time, off_time) #최초 명령 전송
         for devName, devId in DEV_MAP.items():
             led_key = devName  # "Lamp1"
             expected_states[led_key] = {
@@ -204,8 +224,7 @@ def group_control():
             retry_counts[led_key] = 0
             status_check_queue.put(led_key)
             last_sent_time[led_key] = time.time()
-            downlink.sendData(devId, payload_bytes)
-            #time.sleep(0.5)
+            downlink.sendData(devId, payload_bytes)            
 
         print(f"📤 전송 바이트: {[hex(b) for b in payload_bytes]}")
         return jsonify({"status": "success"})
@@ -223,6 +242,9 @@ def single_control():
         brightness = int(data.get("brightness", 0))
         on_time = data.get("onTime", "00:00")
         off_time = data.get("offTime", "00:00")
+        global cmdSendFlag, cmdSendTime
+        cmdSendFlag = True
+        cmdSendTime = time.time()
 
         # devEUI -> Lamp 키 매핑
         lamp_key = None
@@ -243,8 +265,8 @@ def single_control():
         last_sent_time[lamp_key] = time.time()
 
         # 전송 payload 생성 및 전송
-        payload_bytes = dataParsing.encode_group_payload(0, 1, state, brightness, on_time, off_time)
-        downlink.sendData(dev_eui, payload_bytes)
+        payload_bytes = dataParsing.encode_group_payload(1, 1, state, brightness, on_time, off_time)
+        downlink.sendData(dev_eui, payload_bytes, 1)        
 
         print(f"📤 개별제어 전송: {lamp_key}({dev_eui}) => {payload_bytes}")
         return jsonify({"status": "success"})
@@ -399,7 +421,6 @@ if __name__ == '__main__':
     mqtt.connect(BROKER, 1883, 60)
     mqtt.loop_start()
 
-    threading.Thread(target=enqueue_status_check, daemon=True).start()
-    threading.Thread(target=sequential_status_check, daemon=True).start()
+    threading.Thread(target=retry_check_loop, daemon=True).start()
 
     socketio.run(app, host='0.0.0.0', port=5050, allow_unsafe_werkzeug=True)
