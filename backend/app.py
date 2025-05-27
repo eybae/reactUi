@@ -17,6 +17,10 @@ from LampCont import dataParsing
 from LampCont import downlink
 from camera import ptz
 
+from threading import Lock
+
+lock = Lock()  # 🔥 공유 데이터 접근을 보호
+
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
@@ -44,6 +48,8 @@ DEV_MAP = {
 # 상태 저장
 led_states = {}
 expected_states = {}
+expected_cmds = {}
+expected_modes = {} 
 last_sent_time = {}
 retry_counts = {}  # 재시도 횟수 저장
 MAX_RETRY = 3
@@ -79,20 +85,15 @@ def on_message(client, userdata, msg):
         payload_str = msg.payload.decode()
         payload_json = json.loads(payload_str)
 
-        # 공통 추출
         device_info = payload_json.get("deviceInfo", {})
         dev_eui = device_info.get("devEui")
         dev_key = next((k for k, v in DEV_MAP.items() if v == dev_eui), dev_eui)
 
-        # ✅ txack 처리 (전송 확인만)
         if topic.endswith("/event/txack"):
             print(f"📨 txack 수신됨 → 명령 전송 확인: {dev_key}")
-            socketio.emit("device_txack", {
-                "device": dev_key
-            })
-            return  # 여기서 종료, ledStates 저장은 하지 않음
+            socketio.emit("device_txack", {"device": dev_key})
+            return
 
-        # ✅ uplink 수신 처리 (상태 파싱 및 UI 반영)
         object_json = payload_json.get("objectJSON")
         if object_json:
             try:
@@ -109,25 +110,28 @@ def on_message(client, userdata, msg):
 
         print(f"🔎 파싱된 장비 상태: {dev_data}")
 
-        expected = expected_states.get(dev_key)
-        pending = (
-            expected
-            and (
-                dev_data.get("status") != expected.get("status")
-                or dev_data.get("brightness") != expected.get("brightness")
+        with lock:
+            expected = expected_states.get(dev_key)
+            pending = (
+                expected and (
+                    dev_data.get("status") != expected.get("status") or
+                    dev_data.get("brightness") != expected.get("brightness")
+                )
             )
-        )
+            if not pending:
+                expected_states.pop(dev_key, None)
+                expected_cmds.pop(dev_key, None)
+                expected_modes.pop(dev_key, None)
+                retry_counts.pop(dev_key, None)
+                last_sent_time.pop(dev_key, None)
+                try:
+                    status_check_queue.queue.remove(dev_key)
+                except ValueError:
+                    pass
 
-        if not pending:
-            expected_states.pop(dev_key, None)
-            retry_counts.pop(dev_key, None)
-            last_sent_time.pop(dev_key, None)
-
-        # 상태 저장 및 전송
+        # 🔥 uplink 온 상태를 UI에 무조건 전송 (lock 밖)
         led_states[dev_key] = dev_data
         save_led_states()
-
-        print(f"📤 UI로 전송: {dev_key} => {dev_data}, pending: {pending}")
         socketio.emit("device_status_update", {
             "device": dev_key,
             "status": dev_data["status"],
@@ -141,56 +145,73 @@ def on_message(client, userdata, msg):
 def retry_check_loop():
     global cmdSendFlag, cmdSendTime
     while True:
-        #time.sleep(1)
         if not cmdSendFlag:
             continue
 
-        if time.time() - cmdSendTime >= 40:
-            print("30초 경과 → 재전송 시작")
-            cmdSendFlag = False  # 한 번만 실행
+        current_queue = list(status_check_queue.queue)
+        for dev_key in current_queue:
+            with lock:
+                expected = expected_states.get(dev_key)
+                if expected is None:
+                    print(f"⚠️ expected 상태 없음: {dev_key} → 큐에서 제거")
+                    try:
+                        status_check_queue.queue.remove(dev_key)
+                    except ValueError:
+                        pass
+                    retry_counts.pop(dev_key, None)
+                    expected_cmds.pop(dev_key, None)
+                    expected_modes.pop(dev_key, None)
+                    continue
 
-            for attempt in range(2):  # 최대 2회 반복
-                current_queue = list(status_check_queue.queue)
-                for dev_key in current_queue:
-                    expected = expected_states.get(dev_key)
-                    if expected is None:
-                        print(f"⚠️ expected 상태 없음: {dev_key} → 건너뜀")
-                        continue
+                # 🔥 delay 계산
+                if expected_cmds.get(dev_key) == 2:
+                    mode = expected_modes.get(dev_key, 1)
+                    resend_delay = 20 + mode * 2
+                else:
+                    resend_delay = 40
 
-                    actual = led_states.get(dev_key)
-                    if actual is not None and expected is not None and actual == expected:
-                        print(f"상태 일치: {dev_key} → 큐 제거")
-                        try:
-                            status_check_queue.queue.remove(dev_key)
-                        except ValueError:
-                            pass
-                        retry_counts.pop(dev_key, None)
-                        expected_states.pop(dev_key, None)
-                        continue
+                if time.time() - cmdSendTime < resend_delay:
+                    continue
 
-                    count = retry_counts.get(dev_key, 0)
-                    if count < 2:
-                        print(f"재전송 ({count+1}/2): {dev_key}")
-                        payload_bytes = dataParsing.encode_group_payload(
-                            0, 1,
-                            expected.get("status", "off"),
-                            expected.get("brightness", 0),
-                            "00:00", "00:00"
-                        )
-                        dev_id = DEV_MAP.get(dev_key)
-                        if dev_id:
-                            downlink.sendData(dev_id, payload_bytes)
-                        retry_counts[dev_key] = count + 1
-                    else:
-                        print(f"최대 재전송 초과: {dev_key} → 큐 제거")
-                        try:
-                            status_check_queue.queue.remove(dev_key)
-                        except ValueError:
-                            pass
-                        retry_counts.pop(dev_key, None)
-                        expected_states.pop(dev_key, None)
+                actual = led_states.get(dev_key)
+                if actual and actual == expected:
+                    print(f"상태 일치: {dev_key} → 큐 제거")
+                    try:
+                        status_check_queue.queue.remove(dev_key)
+                    except ValueError:
+                        pass
+                    retry_counts.pop(dev_key, None)
+                    expected_states.pop(dev_key, None)
+                    expected_cmds.pop(dev_key, None)
+                    expected_modes.pop(dev_key, None)
+                    continue
 
-                    time.sleep(5)  # 각 장비별로 5초 간격 전송
+                cmd = expected_cmds.get(dev_key, 1)
+                count = retry_counts.get(dev_key, 0)
+                if count < 2:
+                    print(f"재전송 ({count+1}/2): {dev_key}")
+                    payload_bytes = dataParsing.encode_group_payload(
+                        0, cmd,
+                        expected.get("status", "off"),
+                        expected.get("brightness", 0),
+                        "00:00", "00:00"
+                    )
+                    dev_id = DEV_MAP.get(dev_key)
+                    if dev_id:
+                        downlink.sendData(dev_id, payload_bytes)
+                    retry_counts[dev_key] = count + 1
+                else:
+                    print(f"최대 재전송 초과: {dev_key} → 큐 제거")
+                    try:
+                        status_check_queue.queue.remove(dev_key)
+                    except ValueError:
+                        pass
+                    retry_counts.pop(dev_key, None)
+                    expected_states.pop(dev_key, None)
+                    expected_cmds.pop(dev_key, None)
+                    expected_modes.pop(dev_key, None)
+
+                time.sleep(5)
 
 
 # REST API
@@ -203,8 +224,8 @@ def get_all_led_states():
 @app.route('/group/control', methods=['POST'])
 def group_control():
     data = request.json
-    mode = data.get("mode", 0)
-    cmd = data.get('cmd', 1)
+    mode = 1 #data.get("mode", 0)
+    cmd = 1  #data.get('cmd', 1)
     state = data.get('state', 'off')
     brightness = data.get('brightness', 0)
     on_time = data.get('onTime', '00:00')
@@ -214,13 +235,14 @@ def group_control():
     cmdSendTime = time.time()
 
     try:
-        payload_bytes = dataParsing.encode_group_payload(1, cmd, state, brightness, on_time, off_time) #최초 명령 전송
+        payload_bytes = dataParsing.encode_group_payload(mode, cmd, state, brightness, on_time, off_time) #최초 명령 전송
         for devName, devId in DEV_MAP.items():
             led_key = devName  # "Lamp1"
             expected_states[led_key] = {
                 "status": state,
                 "brightness": brightness
             }
+            expected_cmds[led_key] = 1  # 🔥 GroupControl cmd=1
             retry_counts[led_key] = 0
             status_check_queue.put(led_key)
             last_sent_time[led_key] = time.time()
@@ -242,6 +264,9 @@ def single_control():
         brightness = int(data.get("brightness", 0))
         on_time = data.get("onTime", "00:00")
         off_time = data.get("offTime", "00:00")
+        mode = int(data.get("mode", 1))  # ✏️ 추가: mode를 클라이언트에서 받음
+        cmd = 2  # ✏️ 개별제어 cmd 고정
+        
         global cmdSendFlag, cmdSendTime
         cmdSendFlag = True
         cmdSendTime = time.time()
@@ -260,13 +285,15 @@ def single_control():
             "status": state,
             "brightness": brightness,
         }
+        expected_cmds[lamp_key] = 2  # 🔥 SingleControl cmd=2
+        expected_modes[lamp_key] = mode  # 🔥 mode 저장
         retry_counts[lamp_key] = 0
         status_check_queue.put(lamp_key)
         last_sent_time[lamp_key] = time.time()
 
         # 전송 payload 생성 및 전송
-        payload_bytes = dataParsing.encode_group_payload(1, 1, state, brightness, on_time, off_time)
-        downlink.sendData(dev_eui, payload_bytes, 1)        
+        payload_bytes = dataParsing.encode_group_payload(mode, cmd, state, brightness, on_time, off_time)
+        downlink.sendData(dev_eui, payload_bytes)        
 
         print(f"📤 개별제어 전송: {lamp_key}({dev_eui}) => {payload_bytes}")
         return jsonify({"status": "success"})

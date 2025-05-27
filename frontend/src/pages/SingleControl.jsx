@@ -54,12 +54,18 @@ export default function SingleControl() {
   };
 
   const handleSend = async () => {
-    for (const [devEui, setting] of Object.entries(lampSettings)) {
-      if (!setting.selected) continue;
+    const selectedLamps = Object.entries(lampSettings).filter(
+      ([_, setting]) => setting.selected
+    );
+
+    const mode = selectedLamps.length; // 선택된 램프 수를 mode로 전송
+
+    for (const [devEui, setting] of selectedLamps) {
       try {
         await axios.post("http://localhost:5050/single/control", {
           devEui,
           ...setting,
+          mode,    // ✏️ mode 추가
         });
         console.log("✅ 전송 완료:", devEui);
       } catch (err) {
